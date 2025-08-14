@@ -127,3 +127,22 @@ export function sortCSS({ paths, globals, dir }) {
   // then by directory
   paths.sort((a, b) => score(a) - score(b))
 }
+
+export function formatFeedTitle(template, title = '') {
+
+  // Beautifies the given title:
+  // "blog/child-1" to "Blog → Child 1"
+  // "blog_posts" to "Blog Posts"
+
+  const formatted = toPosix(title)
+    .split('/')
+    .map(part => part.replace(/[-+_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))
+    .join(' → ')
+
+  // unlikely, but what if
+  if(!template) {
+    return formatted
+  }
+
+  return template.replace('%s', formatted)
+}
