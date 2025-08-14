@@ -206,6 +206,7 @@ export async function createKit(args) {
           // Nue does not seem to wipe the build folder on new builds.
           // This can cause leftover `feed.xml` files when the config
           // in `.yaml` files changes. Hence, we cleanup ourselves.
+          // ref: https://github.com/nuejs/nue/issues/599
 
           const { promises: fs } = await import('node:fs')
           await fs.unlink(join(site.dist, baseDir, 'feed.xml'))
