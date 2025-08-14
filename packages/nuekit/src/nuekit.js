@@ -13,7 +13,7 @@ import { fswatch } from './nuefs.js'
 
 import { log, colors, getAppDir, parsePathParts, extendData, toPosix } from './util.js'
 import { renderPage, getSPALayout } from './layout/page.js'
-import { getLayoutComponents, collectionToFeed, formatFeedTitle } from './layout/components.js'
+import { getLayoutComponents, collectionToFeed } from './layout/components.js'
 
 
 // the HTML5 doctype (can/prefer lowercase for consistency)
