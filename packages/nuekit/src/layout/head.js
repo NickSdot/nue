@@ -1,6 +1,7 @@
 import { extname } from 'node:path'
 
 import { elem } from 'nuemark'
+import { toPosix, formatFeedTitle } from '../util.js'
 
 import { TYPES } from '../nueserver.js'
 
@@ -8,6 +9,43 @@ import { TYPES } from '../nueserver.js'
 function getMime(path) {
   const ext = extname(path).slice(1)
   return TYPES[ext] || ''
+}
+
+function discoverFeedPaths(data) {
+  const { base = '', origin = '', feed_collections = [] } = data
+  const currentPath = toPosix(data.dir || data.basedir || '')
+
+  if (!feed_collections.length) {
+    return []
+  }
+
+  // top level feed
+  if (!currentPath) {
+    return feed_collections
+      .filter(path => !path || !path.includes('/'))
+      .map(path => ({
+        href: `${origin}${base}/${path ? path + '/' : ''}feed.xml`,
+        title: formatFeedTitle(data.title_template, path)
+      }))
+  }
+
+  // parent collection feeds
+  const feeds = []
+  const pathSegments = currentPath.split('/').filter(Boolean)
+
+  for (let i = 0; i <= pathSegments.length; i++) {
+
+    const parentPath = pathSegments.slice(0, i).join('/')
+
+    if (!feed_collections.includes(parentPath)) continue
+
+    feeds.push({
+      href: `${origin}${base}/${parentPath ? parentPath + '/' : ''}feed.xml`,
+      title: formatFeedTitle(data.title_template, parentPath || 'Main')
+    })
+  }
+  
+  return feeds
 }
 
 export function renderHead(data) {
@@ -83,6 +121,16 @@ export function renderHead(data) {
 
   // Pub date
   pushProp('article:published_time', data.date || data.pubDate)
+
+  // feed links
+  discoverFeedPaths(data).forEach(feed => {
+    pushEl('link', {
+      rel: 'alternate',
+      type: 'application/atom+xml',
+      title: feed.title,
+      href: feed.href
+    })
+  })
 
   // components (must always be rendered)
   pushMeta('nue:components', components.map(uri => `${base}${uri}`).join(' ') || ' ')

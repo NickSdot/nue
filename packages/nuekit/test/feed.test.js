@@ -280,6 +280,12 @@ origin: https://example.com
 title_template: "Site / %s"
 nuekit_version: "1.0.0"
 `)
+  await write('index.md', `---
+title: Home Page
+---
+
+# Home Page
+`)
   await write('blog/blog.yaml', `
 content_collection: blog
 has_feed: true
@@ -332,6 +338,24 @@ description: No feed post
   expect(childFeed).toContain('Child Post')
   expect(childFeed).not.toContain('Parent Post') // no parent content
   expect(childFeed).not.toContain('No Feed Post')
+
+  const parentPostHtml = await readDist(kit.dist, 'blog/parent-post.html')
+  expect(parentPostHtml).toContain('<link rel="alternate" type="application/atom+xml" title="Site / Blog" href="https://example.com/blog/feed.xml">')
+
+  const childPostHtml = await readDist(kit.dist, 'blog/subcategory/child-post.html')
+  expect(childPostHtml).toContain('<link rel="alternate" type="application/atom+xml" title="Site / Blog" href="https://example.com/blog/feed.xml">')
+  expect(childPostHtml).toContain('<link rel="alternate" type="application/atom+xml" title="Site / Blog &#x2192; Subcategory" href="https://example.com/blog/subcategory/feed.xml">')
+
+  // always includes parent, doesn't include non-existent feeds
+  const noFeedPostHtml = await readDist(kit.dist, 'blog/no-feed/no-feed-post.html')
+  expect(noFeedPostHtml).toContain('<link rel="alternate" type="application/atom+xml" title="Site / Blog" href="https://example.com/blog/feed.xml">')
+  expect(noFeedPostHtml).not.toContain('no-feed/feed.xml')
+  
+  // main page includes all top-level feeds
+  const mainIndexHtml = await readDist(kit.dist, 'index.html')
+  expect(mainIndexHtml).toContain('<link rel="alternate" type="application/atom+xml" title="Site / Blog" href="https://example.com/blog/feed.xml">')
+  expect(mainIndexHtml).not.toContain('subcategory/feed.xml') // not top-level
+  expect(mainIndexHtml).not.toContain('no-feed/feed.xml') // doesn't exist
 })
 
 test('parent/child directories `has_feed` settings work correctly', async () => {

@@ -92,6 +92,49 @@ export async function createKit(args) {
   }
 
 
+  // Shared utility for extracting directory from file path
+  const getDir = p => {
+    const posixPath = toPosix(p)
+    return posixPath.slice(0, posixPath.lastIndexOf('/'))
+  }
+
+  async function getFeedCollections() {
+    const allFiles = await site.walk()
+    const yamlFiles = allFiles.filter(f => f.endsWith('.yaml'))
+    
+    const feedDirs = []
+    const excludedDirs = []
+
+    // Check main site feed
+    const siteData = await site.getData()
+    if (siteData.has_feed) {
+      feedDirs.push('')
+    }
+
+    // Sort by depth (deepest first) for proper exclusion handling
+    const sortedYamlFiles = yamlFiles
+      .filter(f => f !== 'site.yaml')
+      .sort((a, b) => toPosix(b).split('/').length - toPosix(a).split('/').length)
+
+    for (const yamlPath of sortedYamlFiles) {
+      const baseDir = getDir(yamlPath)
+      
+      try {
+        const yaml = await site.getData(baseDir)
+        if (yaml.has_feed) {
+          feedDirs.push(baseDir)
+        } else {
+          excludedDirs.push(baseDir)
+        }
+      } catch (e) {
+        // Skip directories that can't be loaded
+        excludedDirs.push(baseDir)
+      }
+    }
+
+    return { feedDirs, excludedDirs, siteData }
+  }
+
   async function getPageData(path) {
 
     // markdown data: meta, sections, headings, links
@@ -111,6 +154,9 @@ export async function createKit(args) {
       const key = data.collection_name || cdir
       data[key] = await site.getContentCollection(cdir)
     }
+
+    // feed collections for <head> alternate links
+    data.feed_collections = (await getFeedCollections()).feedDirs
 
     // scripts & styling
     const asset_dir = meta.appdir || dir
@@ -141,6 +187,9 @@ export async function createKit(args) {
     const appdir = getAppDir(index_path)
     const data = { ...await site.getData(appdir), ...parsePathParts(index_path), is_spa: true }
 
+    // feed collections for <head> alternate links
+    data.feed_collections = (await getFeedCollections()).feedDirs
+
     // scripts & styling
     data.assets = {}
     await setupScripts(dir, data)
@@ -167,69 +216,39 @@ export async function createKit(args) {
 
     const feedFile = 'feed.xml'
 
-    const getDir = p => {
-      const posixPath = toPosix(p)
-      return posixPath.slice(0, posixPath.lastIndexOf('/'))
+    const { feedDirs, excludedDirs, siteData } = await getFeedCollections()
+
+    // todo: do we need this or is it a Nue bug?
+    // Nue does not seem to wipe the build folder on new builds.
+    // This can cause leftover `feed.xml` files when the config
+    // in `.yaml` files changes. Hence, we cleanup ourselves.
+    // ref: https://github.com/nuejs/nue/issues/599
+    for (const excludedDir of excludedDirs) {
+
+      try {
+        const { promises: fs } = await import('node:fs')
+        await fs.unlink(join(site.dist, excludedDir, feedFile))
+      } catch (e) {
+        // No file, all good.
+      }
     }
 
-    const siteData = await site.getData()
+    for (const feedDir of feedDirs) {
 
-    // sorted by depth to make sure we later can exclude
-    // based on child directories in `excludedDirs`.
-
-    const yamlFiles = misc
-      .filter(f => f.endsWith('.yaml'))
-      .sort((a, b) => toPosix(b).split('/').length - toPosix(a).split('/').length);
-
-    const excludedDirs = []
-
-    for (const yamlPath of yamlFiles) {
-
-      if (yamlPath === 'site.yaml') continue
-
-      const baseDir = getDir(yamlPath)
-
-      const yaml = {}
-      Object.assign(yaml, await site.getData(baseDir))
-
-      // Will be true if explicitly in the collections .yaml, or if
-      // the .yaml in a child directory of a "feedable" parent has
-      // no `has_feed` defined. Excluded when collection or child
-      // explicitly opt-out via `has_feed: false`.
-
-      if (!yaml.has_feed) {
-        excludedDirs.push(baseDir)
-
-        try {
-
-          // todo: do we need this or is it a Nue bug?
-          // Nue does not seem to wipe the build folder on new builds.
-          // This can cause leftover `feed.xml` files when the config
-          // in `.yaml` files changes. Hence, we cleanup ourselves.
-          // ref: https://github.com/nuejs/nue/issues/599
-
-          const { promises: fs } = await import('node:fs')
-          await fs.unlink(join(site.dist, baseDir, 'feed.xml'))
-
-        } catch (e) {
-          // No file, all good.
-        }
-
-        continue
-      }
+      const yaml = await site.getData(feedDir)
 
       const feedObj = {
         nuekit_version: yaml.nuekit_version,
         title_template: siteData.title_template,
         origin: siteData.origin,
-        title: yaml.collection_name || baseDir,
+        title: yaml.collection_name || feedDir,
         subtitle: yaml.description,
         icon: siteData.favicon,
         author: typeof yaml.author == 'object' && yaml.author
           ? yaml.author
           : { name: yaml.author, mail: undefined },
 
-        link_self: `${siteData.origin}/${baseDir}/${feedFile}`,
+        link_self: `${siteData.origin}/${feedDir}/${feedFile}`,
         link_alternate: (() => {
           const pagesSet = new Set(pages)
 
@@ -238,7 +257,7 @@ export async function createKit(args) {
           // find an index.md, it's a page. Otherwise, we walk
           // up until the next actual linkable page.
 
-          let dir = baseDir
+          let dir = feedDir
           while (!pagesSet.has(`${dir}/index.md`)) {
             const posixDir = toPosix(dir)
             const idx = posixDir.lastIndexOf('/')
@@ -248,13 +267,13 @@ export async function createKit(args) {
 
           return `${siteData.origin}/${dir}/`
         })(),
-        items: (await site.getContentCollection(baseDir)).filter(item =>
+        items: (await site.getContentCollection(feedDir)).filter(item =>
           // we don't vibe items from a `has_feed: false` dir
           !excludedDirs.some(ex => toPosix(item.dir) == ex)
         ),
       }
 
-      await write(collectionToFeed(feedObj), baseDir, feedFile)
+      await write(collectionToFeed(feedObj), feedDir, feedFile)
     }
   }
 
@@ -301,7 +320,7 @@ export async function createKit(args) {
   async function processFile(file, is_bulk) {
     const { path, dir, name, base, ext } = file
     file['is_' + ext.slice(1)] = true
-
+    
 
     // global config reload first
     if (is_dev && !is_bulk && path == 'site.yaml') {
