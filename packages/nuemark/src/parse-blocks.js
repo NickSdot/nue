@@ -24,15 +24,18 @@ export function parseBlocks(lines, capture) {
 
     // fenced code
     if (c == '`' && line.startsWith('```')) {
+      const fence_len = line.match(/^`+/)[0].length
       // new code block
       if (!block?.is_code) {
-        const specs = line.slice(line.lastIndexOf('`') + 1).trim()
-        block = { is_code: true, ...parseTag(specs), code: [] }
+        const specs = line.slice(fence_len).trim()
+        block = { is_code: true, fence_len, ...parseTag(specs), code: [] }
         return blocks.push(block)
 
-        // end of code
-      } else {
+        // end of code (only when fence length matches)
+      } else if (fence_len === block.fence_len && line.trim() === '`'.repeat(fence_len)) {
         return block = null
+      } else {
+        return block.code.push(line)
       }
     }
 
