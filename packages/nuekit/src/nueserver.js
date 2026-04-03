@@ -38,7 +38,7 @@ export const TYPES = {
 let sessions = []
 
 
-export function createServer(root, callback) {
+export function createServer({ dist, root, is_dev }, callback) {
   return http.createServer(async (req, res) => {
 
     // SSE for hot-reloading
@@ -63,10 +63,17 @@ export function createServer(root, callback) {
     try {
       const { code, path } = !ext || ext == 'html' ? await callback(url, _) : { path: url }
       if (!path) throw { errno: -2 }
-      const buffer = await fs.readFile(join(root, path))
+
+      // dev: static files from source (except @nue system files), html from dist
+      // prod: everything from dist
+      const is_static = ext && ext != 'html'
+      const is_system = path.startsWith('/@nue/') || path.startsWith('@nue/')
+      const base = is_dev && is_static && !is_system ? root : dist
+      const buffer = await fs.readFile(join(base, path))
+
       res.writeHead(code || 200, {
         'content-type': TYPES[ext] || TYPES.default
-      })      
+      })
       res.end(buffer)
 
     } catch (e) {
